@@ -12,6 +12,9 @@
             height: 100vh;
             margin: 0;
             background-color: #000;
+            touch-action: none;
+            position: relative;
+            overflow: hidden;
         }
         canvas {
             border: 2px solid #fff;
@@ -43,6 +46,17 @@
         #instructions p {
             margin: 5px 0;
         }
+
+        canvas {
+            border: 2px solid #fff;
+            touch-action: none;
+        }
+
+        @media (max-width: 768px) {
+            #instructions {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>
@@ -50,7 +64,6 @@
     <div id="instructions">
         <h3>操作方法</h3>
         <p>← → ↑ ↓: 上下左右移動</p>
-        <p>スペース: ショット発射</p>
         <p>⭐: パワーアップアイテム</p>
         <p>敵を倒してスコアを稼ごう！</p>
     </div>
