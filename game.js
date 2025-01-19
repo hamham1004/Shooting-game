@@ -2,12 +2,26 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const scoreElement = document.getElementById('scoreValue');
 
+// タッチ状態
+const touch = {
+    isActive: false,
+    targetX: 0,
+    targetY: 0
+};
+
 // ゲーム状態
 let score = 0;
 let gameOver = false;
 let explosionParticles = [];
 let explosionTime = 0;
 const EXPLOSION_DURATION = 60;
+let bossDefeatedCount = 0; // ボス撃破カウント
+
+// 基準速度（1フレームあたりの移動量）
+const BASE_PLAYER_SPEED = 3;
+const BASE_BULLET_SPEED = 5;
+const BASE_ENEMY_BULLET_SPEED = 3;
+const BASE_POWERUP_SPEED = 2;
 
 // プレイヤー
 const player = {
@@ -15,7 +29,7 @@ const player = {
     y: canvas.height - 30,
     width: 30,
     height: 30,
-    speed: 5,
+    speed: BASE_PLAYER_SPEED,
     color: '#0000ff',
     powerLevel: 1,
     shootCooldown: 0
@@ -23,12 +37,12 @@ const player = {
 
 // 弾
 const bullets = [];
-const bulletSpeed = 7;
+const bulletSpeed = BASE_BULLET_SPEED;
 const shootCooldownTime = 10;
 
 // 敵の弾
 const enemyBullets = [];
-const enemyBulletSpeed = 5;
+const enemyBulletSpeed = BASE_ENEMY_BULLET_SPEED;
 
 // 敵の種類の定義
 const EnemyTypes = {
@@ -73,7 +87,7 @@ const wavesUntilBoss = 10;
 
 // パワーアップアイテム
 const powerUps = [];
-const powerUpSpeed = 2;
+const powerUpSpeed = BASE_POWERUP_SPEED;
 
 // キー入力状態
 const keys = {
@@ -95,6 +109,30 @@ document.addEventListener('keyup', (e) => {
     if (e.code in keys) {
         keys[e.code] = false;
     }
+});
+
+// タッチイベント
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const touchX = e.touches[0].clientX - rect.left;
+    const touchY = e.touches[0].clientY - rect.top;
+    touch.isActive = true;
+    touch.targetX = (touchX / rect.width) * canvas.width;
+    touch.targetY = (touchY / rect.height) * canvas.height;
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const touchX = e.touches[0].clientX - rect.left;
+    const touchY = e.touches[0].clientY - rect.top;
+    touch.targetX = (touchX / rect.width) * canvas.width;
+    touch.targetY = (touchY / rect.height) * canvas.height;
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => {
+    touch.isActive = false;
 });
 
 // 弾の発射
@@ -188,20 +226,21 @@ function createEnemy() {
 // ボスの生成
 function createBoss() {
     const type = EnemyTypes.BOSS;
+    const powerMultiplier = 1 + (bossDefeatedCount * 0.5); // ボスの強さ倍率
     enemies.push({
         x: canvas.width / 2 - type.size / 2,
         y: -type.size,
         width: type.size,
         height: type.size,
         color: type.color,
-        hp: type.hp,
-        maxHp: type.hp,
-        speed: type.speed,
-        points: type.points,
+        hp: Math.floor(type.hp * powerMultiplier),
+        maxHp: Math.floor(type.hp * powerMultiplier),
+        speed: type.speed * (1 + bossDefeatedCount * 0.2),
+        points: type.points * powerMultiplier,
         type: type,
         movePattern: 3,
         moveTime: 0,
-        shootRate: type.shootRate
+        shootRate: type.shootRate * (1 + bossDefeatedCount * 0.3)
     });
     bossSpawned = true;
 }
@@ -226,7 +265,7 @@ function createEnemyBullet(enemy) {
 
 // パワーアップアイテムの生成
 function createPowerUp(x, y) {
-    if (Math.random() < 0.3) {
+    if (Math.random() < 0.1) {
         powerUps.push({
             x: x,
             y: y,
@@ -294,9 +333,9 @@ function handleGameOver() {
         ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2);
         ctx.font = '24px Arial';
         ctx.fillText('Score: ' + score, canvas.width / 2, canvas.height / 2 + 40);
-        ctx.fillText('Press Space to Restart', canvas.width / 2, canvas.height / 2 + 80);
+        ctx.fillText('Touch or Press Space to Restart', canvas.width / 2, canvas.height / 2 + 80);
 
-        if (keys.Space) {
+        if (touch.isActive || keys.Space) {
             resetGame();
         }
     }
@@ -318,28 +357,48 @@ function resetGame() {
     explosionTime = 0;
     bossSpawned = false;
     waveCount = 0;
+    bossDefeatedCount = 0;
 }
 
 // 更新処理
 function update() {
     if (gameOver) {
         handleGameOver();
-        requestAnimationFrame(update);
         return;
     }
 
     // プレイヤーの移動
-    if (keys.ArrowLeft && player.x > 0) {
-        player.x -= player.speed;
-    }
-    if (keys.ArrowRight && player.x < canvas.width - player.width) {
-        player.x += player.speed;
-    }
-    if (keys.ArrowUp && player.y > 0) {
-        player.y -= player.speed;
-    }
-    if (keys.ArrowDown && player.y < canvas.height - player.height) {
-        player.y += player.speed;
+    if (touch.isActive) {
+        // タッチ位置に向かって移動
+        const dx = touch.targetX - (player.x + player.width/2);
+        const dy = touch.targetY - (player.y + player.height/2);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 1) {
+            const moveX = (dx / distance) * BASE_PLAYER_SPEED;
+            const moveY = (dy / distance) * BASE_PLAYER_SPEED;
+            
+            const newX = player.x + moveX;
+            const newY = player.y + moveY;
+            
+            // 画面外に出ないように制限
+            player.x = Math.max(0, Math.min(canvas.width - player.width, newX));
+            player.y = Math.max(0, Math.min(canvas.height - player.height, newY));
+        }
+    } else {
+        // キーボード操作
+        if (keys.ArrowLeft && player.x > 0) {
+            player.x -= BASE_PLAYER_SPEED;
+        }
+        if (keys.ArrowRight && player.x < canvas.width - player.width) {
+            player.x += BASE_PLAYER_SPEED;
+        }
+        if (keys.ArrowUp && player.y > 0) {
+            player.y -= BASE_PLAYER_SPEED;
+        }
+        if (keys.ArrowDown && player.y < canvas.height - player.height) {
+            player.y += BASE_PLAYER_SPEED;
+        }
     }
 
     // プレイヤーのクールダウン更新
@@ -347,15 +406,13 @@ function update() {
         player.shootCooldown--;
     }
 
-    // スペースキーで弾を発射
-    if (keys.Space) {
-        shoot();
-    }
+    // 自動射撃
+    shoot();
 
     // 弾の移動
     for (let i = bullets.length - 1; i >= 0; i--) {
-        bullets[i].x += bulletSpeed * Math.sin(bullets[i].angle);
-        bullets[i].y -= bulletSpeed * Math.cos(bullets[i].angle);
+        bullets[i].x += BASE_BULLET_SPEED * Math.sin(bullets[i].angle);
+        bullets[i].y -= BASE_BULLET_SPEED * Math.cos(bullets[i].angle);
         if (bullets[i].y < 0 || bullets[i].x < 0 || bullets[i].x > canvas.width) {
             bullets.splice(i, 1);
         }
@@ -363,7 +420,7 @@ function update() {
 
     // パワーアップアイテムの移動と取得判定
     for (let i = powerUps.length - 1; i >= 0; i--) {
-        powerUps[i].y += powerUpSpeed;
+        powerUps[i].y += BASE_POWERUP_SPEED;
         
         if (powerUps[i].y > canvas.height) {
             powerUps.splice(i, 1);
@@ -385,20 +442,21 @@ function update() {
         const enemy = enemies[i];
         
         enemy.moveTime++;
+        
         switch(enemy.movePattern) {
             case 1:
-                enemy.x += Math.sin(enemy.moveTime * 0.05) * 3;
+                enemy.x += Math.sin(enemy.moveTime * 0.05) * 2;
                 enemy.y += enemy.speed;
                 break;
             case 2:
-                enemy.x += Math.cos(enemy.moveTime * 0.05) * 2;
+                enemy.x += Math.cos(enemy.moveTime * 0.05) * 1.5;
                 enemy.y += enemy.speed * 0.7;
                 break;
             case 3:
                 if (enemy.y < 50) {
                     enemy.y += enemy.speed;
                 } else {
-                    enemy.x += Math.cos(enemy.moveTime * 0.02) * 3;
+                    enemy.x += Math.cos(enemy.moveTime * 0.02) * 2;
                 }
                 break;
             default:
@@ -434,6 +492,7 @@ function update() {
                     if (enemy.type === EnemyTypes.BOSS) {
                         bossSpawned = false;
                         waveCount = 0;
+                        bossDefeatedCount++;
                     }
                     enemies.splice(i, 1);
                 }
@@ -511,62 +570,3 @@ function update() {
         ctx.arc(bullet.x + bullet.width/2, bullet.y + bullet.height/2, bullet.width, 0, Math.PI * 2);
         ctx.fill();
     });
-
-    // 敵の描画
-    enemies.forEach(enemy => {
-        const hpBarWidth = enemy.width;
-        const hpBarHeight = 4;
-        const hpPercentage = enemy.hp / enemy.maxHp;
-        ctx.fillStyle = '#333';
-        ctx.fillRect(enemy.x, enemy.y - hpBarHeight - 2, hpBarWidth, hpBarHeight);
-        ctx.fillStyle = '#0f0';
-        ctx.fillRect(enemy.x, enemy.y - hpBarHeight - 2, hpBarWidth * hpPercentage, hpBarHeight);
-
-        ctx.fillStyle = enemy.color;
-        if (enemy.type === EnemyTypes.BOSS) {
-            ctx.beginPath();
-            ctx.moveTo(enemy.x + enemy.width/2, enemy.y);
-            ctx.lineTo(enemy.x + enemy.width, enemy.y + enemy.height/2);
-            ctx.lineTo(enemy.x + enemy.width/2, enemy.y + enemy.height);
-            ctx.lineTo(enemy.x, enemy.y + enemy.height/2);
-            ctx.closePath();
-            ctx.fill();
-            
-            ctx.beginPath();
-            ctx.arc(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.width/4, 0, Math.PI * 2);
-            ctx.fillStyle = '#ff0';
-            ctx.fill();
-        } else {
-            ctx.beginPath();
-            ctx.ellipse(enemy.x + enemy.width/2, enemy.y + enemy.height/3, enemy.width/2, enemy.height/3, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.beginPath();
-            for(let i = 0; i < 3; i++) {
-                ctx.moveTo(enemy.x + enemy.width * (i+1)/4, enemy.y + enemy.height/2);
-                ctx.quadraticCurveTo(
-                    enemy.x + enemy.width * (i+1)/4,
-                    enemy.y + enemy.height,
-                    enemy.x + enemy.width * (i+1)/4 + (i === 1 ? 0 : i === 0 ? -5 : 5),
-                    enemy.y + enemy.height
-                );
-            }
-            ctx.strokeStyle = enemy.color;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
-    });
-
-    // 敵の弾の描画
-    enemyBullets.forEach(bullet => {
-        ctx.fillStyle = bullet.color;
-        ctx.beginPath();
-        ctx.arc(bullet.x, bullet.y, bullet.width, 0, Math.PI * 2);
-        ctx.fill();
-    });
-
-    requestAnimationFrame(update);
-}
-
-// ゲーム開始
-update();
